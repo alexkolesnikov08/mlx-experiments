@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+data/
+output/*.pth
+conclusions/MLX-*.md
+СДЕЛАТЬ.md
