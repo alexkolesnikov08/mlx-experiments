@@ -84,10 +84,10 @@ def get_dataloaders():
         transforms.Normalize((0.1307,), (0.3081,)),
     ])
     trainset = torchvision.datasets.MNIST(
-        root="./data", train=True, download=False, transform=transform,
+        root="./data", train=True, download=True, transform=transform,
     )
     testset = torchvision.datasets.MNIST(
-        root="./data", train=False, download=False, transform=transform,
+        root="./data", train=False, download=True, transform=transform,
     )
     train_loader = torch.utils.data.DataLoader(
         trainset, batch_size=BATCH_SIZE, shuffle=True,
