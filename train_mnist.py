@@ -188,6 +188,14 @@ def main():
     plot_curves(step_losses, epoch_edges, train_accs, test_accs, SAVE_DIR / "loss_curves.png")
     print(f"Saved: {SAVE_DIR / 'best_model.pth'}")
     print(f"Saved: {SAVE_DIR / 'loss_curves.png'}")
+    # Export to safetensors for MLX inference without torch (issue #3)
+    try:
+        import mlx.core as mx
+        from mlx_model import export_to_safetensors, DepthwiseMNIST as MLXModel
+        # Only export if mlx Model can be built (lazy torch inside)
+        export_to_safetensors(str(SAVE_DIR / "best_model.pth"), str(SAVE_DIR / "best_model.safetensors"))
+    except Exception as e:
+        print(f"[safetensors export skipped] {e}")
 
 
 if __name__ == "__main__":

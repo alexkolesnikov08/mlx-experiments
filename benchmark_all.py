@@ -8,11 +8,18 @@ import time
 import numpy as np
 from pathlib import Path
 
-import torch
 import mlx.core as mx
 
-from train_mnist import DepthwiseMNIST as PTModel
 from mlx_model import get_model, forward_fused
+
+# Optional torch: only needed for PyTorch MPS backend
+try:
+    import torch
+    from train_mnist import DepthwiseMNIST as PTModel
+    _TORCH_AVAILABLE = True
+except ImportError:
+    _TORCH_AVAILABLE = False
+    PTModel = None
 
 # Theoretical FLOPs per forward pass (one example)
 # Conv1: 2 * 3*3 * 1*48 * 28*28 = 677,376
@@ -27,14 +34,23 @@ FLOPS_PER_PASS = 17_800_000  # approximate for this model
 BATCH_SIZES = [1, 16, 64, 128, 256, 512]
 WARMUP = 30
 TRIALS = 200
-WEIGHTS = "output/best_model.pth"
+# Prefer safetensors for MLX (no torch), fallback to .pth
+WEIGHTS_PTH = "output/best_model.pth"
+WEIGHTS_SAFETENSORS = "output/best_model.safetensors"
+WEIGHTS = WEIGHTS_SAFETENSORS if Path(WEIGHTS_SAFETENSORS).exists() else WEIGHTS_PTH
+# MLX weights path (always safetensors if available)
+MLX_WEIGHTS = WEIGHTS
 
 DTYPE = mx.float32
 
 
 def benchmark_pt(batch_size):
+    if not _TORCH_AVAILABLE:
+        raise RuntimeError("torch not available - skipping PT MPS benchmark")
+    # PT always uses .pth checkpoint
+    pth_path = WEIGHTS_PTH if Path(WEIGHTS_PTH).exists() else WEIGHTS
     model = PTModel()
-    sd = torch.load(WEIGHTS, map_location="cpu", weights_only=True)
+    sd = torch.load(pth_path, map_location="cpu", weights_only=True)
     model.load_state_dict(sd)
     model.eval()
     model = model.to("mps")
@@ -67,7 +83,7 @@ def benchmark_pt(batch_size):
 
 
 def benchmark_mlx(batch_size, fused=False):
-    model = get_model(WEIGHTS)
+    model = get_model(MLX_WEIGHTS)
 
     x = mx.random.normal(shape=(batch_size, 28, 28, 1), dtype=DTYPE)
 
@@ -103,14 +119,33 @@ def benchmark_mlx(batch_size, fused=False):
 def main():
     results = {}
 
-    # PyTorch MPS
+    # PyTorch MPS (optional)
     print("\n=== PyTorch MPS ===")
     results["pt"] = {}
-    for bs in BATCH_SIZES:
-        print(f"  BS={bs}...", end=" ", flush=True)
-        p50, p95, mean_ms, cv, thru, lats = benchmark_pt(bs)
-        results["pt"][bs] = (p50, p95, mean_ms, cv, thru, lats)
-        print(f"P50={p50:.3f} ms, P95={p95:.3f} ms, thru={thru:,.0f} samp/s, CV={cv:.2%}")
+    if not _TORCH_AVAILABLE:
+        print("  (torch not installed - skipping PT MPS, filling NaN)")
+        for bs in BATCH_SIZES:
+            nan_lats = np.full(TRIALS, np.nan)
+            results["pt"][bs] = (np.nan, np.nan, np.nan, np.nan, np.nan, nan_lats)
+    else:
+        try:
+            # quick check that .pth exists
+            if not Path(WEIGHTS_PTH).exists() and not Path(WEIGHTS).exists():
+                print(f"  (weights not found {WEIGHTS_PTH} - skipping)")
+                for bs in BATCH_SIZES:
+                    nan_lats = np.full(TRIALS, np.nan)
+                    results["pt"][bs] = (np.nan, np.nan, np.nan, np.nan, np.nan, nan_lats)
+            else:
+                for bs in BATCH_SIZES:
+                    print(f"  BS={bs}...", end=" ", flush=True)
+                    p50, p95, mean_ms, cv, thru, lats = benchmark_pt(bs)
+                    results["pt"][bs] = (p50, p95, mean_ms, cv, thru, lats)
+                    print(f"P50={p50:.3f} ms, P95={p95:.3f} ms, thru={thru:,.0f} samp/s, CV={cv:.2%}")
+        except Exception as e:
+            print(f"  PT benchmark failed: {e}")
+            for bs in BATCH_SIZES:
+                nan_lats = np.full(TRIALS, np.nan)
+                results["pt"][bs] = (np.nan, np.nan, np.nan, np.nan, np.nan, nan_lats)
 
     # MLX baseline
     print("\n=== MLX (baseline) ===")
