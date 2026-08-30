@@ -6,6 +6,24 @@ import mlx.core as mx
 import mlx.nn as nn
 from mlx_model import DepthwiseMNIST, forward_fused, fused_dw_bn_relu
 
+# Конфиг GPU для roofline-анализа (а не магические числа).
+# M1 Pro 16-core, 32 GB unified, 200 GB/s, пик FP32 ~5.2 TFLOPS (2 FMA/clk/ALU).
+GPU_SPECS = {
+    "name": "Apple M1 Pro",
+    "gpu_cores": 16,
+    "peak_flops_tflops": 5.2,
+    "peak_flops_gflops": 5.2 * 1000.0,
+    "bandwidth_gbps": 200.0,
+    "memory_type": "unified",
+}
+
+
+def _ridge_point() -> float:
+    """Точка перегиба roofline: FLOPs/byte, при которой compute == memory boundary."""
+    peak_flops = GPU_SPECS["peak_flops_gflops"] * 1e9   # FLOP/s
+    peak_bw = GPU_SPECS["bandwidth_gbps"] * 1e9          # bytes/s
+    return peak_flops / peak_bw                          # FLOP/byte
+
 
 def compute_flops_per_pass() -> dict:
     """Compute theoretical FLOPs per layer for one forward pass."""
@@ -211,9 +229,7 @@ def roofline_analysis(batch_sizes: list = None, latencies_ms: dict = None):
     """
     Generate roofline model data.
 
-    Peak M1 GPU (default values):
-      peak_fp32_tflops = 2.662  # TFLOPS
-      peak_bandwidth_gbps = 68  # GB/s
+    GPU specs берутся из конфига GPU_SPECS (см. начало файла).
 
     For each (backend, batch_size):
       achieved_tflops = total_flops * batch_size / (latency_s * 1e12)
@@ -227,8 +243,8 @@ def roofline_analysis(batch_sizes: list = None, latencies_ms: dict = None):
     if latencies_ms is None:
         latencies_ms = {("standard", bs): 0.5 * bs ** 0.3 for bs in batch_sizes}
 
-    peak_fp32_tflops = 2.662
-    peak_bandwidth_gbps = 68.0
+    peak_fp32_tflops = GPU_SPECS["peak_flops_tflops"]
+    peak_bandwidth_gbps = GPU_SPECS["bandwidth_gbps"]
 
     total_flops_per_sample = compute_flops_per_pass()["total_all"]
 
@@ -253,7 +269,9 @@ def roofline_analysis(batch_sizes: list = None, latencies_ms: dict = None):
         total_bytes_per_sample += ai_info["bytes_total"]
 
     print(f"\n{' Roofline Analysis ':=^60}")
+    print(f"GPU: {GPU_SPECS['name']} ({GPU_SPECS['gpu_cores']} GPU-cores)")
     print(f"Peak FP32: {peak_fp32_tflops} TFLOPS  |  Peak BW: {peak_bandwidth_gbps} GB/s")
+    print(f"Ridge point: {_ridge_point():.2f} FLOPs/byte")
     print(f"Total FLOPs/sample: {total_flops_per_sample:,}")
     print(f"Total Bytes/sample: {total_bytes_per_sample:,}")
     print(f"Arithmetic Intensity: {total_flops_per_sample / total_bytes_per_sample:.2f} FLOPs/byte")

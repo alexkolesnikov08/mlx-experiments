@@ -92,7 +92,7 @@ def plot_benchmark_comparison(data, output_dir):
     ax2.set_ylabel("Throughput (samples/sec)", fontsize=12)
     ax2.set_title("Inference Throughput", fontsize=14, fontweight="bold")
     ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{x:,.0f}"))
-    plt.suptitle("Depthwise MNIST — Backend Comparison (Apple M1)", fontsize=16, fontweight="bold", y=1.02)
+    plt.suptitle("Depthwise MNIST — Backend Comparison (Apple M1 Pro)", fontsize=16, fontweight="bold", y=1.02)
     plt.tight_layout()
     path = os.path.join(output_dir, "benchmark_comparison.png")
     plt.savefig(path, dpi=150, bbox_inches="tight")
